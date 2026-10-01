@@ -104,9 +104,9 @@ for ($i = 1; $i -le 90; $i++) {
         Write-Host "[debug] got ID via --get-id after $($i*2)s"
         break
     }
-    # fallback: đọc thẳng file config (GUI ghi ID vào đây)
+    # fallback: đọc thẳng file config (GUI ghi ID vào đây, toml dùng nháy đơn)
     if (Test-Path $cfg) {
-        $m = Select-String -Path $cfg -Pattern "^\s*id\s*=\s*['\"](\d{6,})['\"]" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $m = Select-String -Path $cfg -Pattern "^\s*id\s*=\s*'(\d{6,})'" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($m) {
             $Id = $m.Matches[0].Groups[1].Value
             Write-Host "[debug] got ID from config file after $($i*2)s"
@@ -143,5 +143,9 @@ try { Set-Clipboard -Value $info } catch { Write-Warning "Clipboard failed: $_ (
 Write-Host $info
 Write-Host '=> Da copy vao clipboard. Dan vao Zalo/tele ngay.'
 
-Start-Process $Exe
-Write-Host '[done] OK.'
+# Đóng cửa sổ chính: app chỉ ẩn vào tray (giống user bấm X) — server vẫn chạy,
+# không hiện cửa sổ trên máy thi. Icon tray vẫn còn để quản lý nếu cần.
+foreach ($p in Get-Process DNUDesk -ErrorAction SilentlyContinue) {
+    $null = $p.CloseMainWindow()
+}
+Write-Host '[done] OK — cửa sổ đã ẩn vào tray, chỉ còn icon tray gần đồng hồ.'
