@@ -13,13 +13,26 @@ $SupportId    = ''               # ID máy của NGƯỜI CONNECT (mở DNUDesk 
                                 # session vẫn auto-accept bằng password (CM tự minimize sau 3s).
 # =============================================
 
+# Script này có thể đang chạy trong PowerShell đã elevate sẵn (VD chạy từ
+# PowerShell "Run as Administrator"). Khi đó -Verb RunAs sẽ treo vì không
+# còn cửa sổ UAC nào để hiện — bỏ qua UAC nếu đã là admin.
+$script:IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+function Invoke-Elevated {
+    param([string]$FilePath, [string]$ArgumentList)
+    if ($script:IsAdmin) {
+        Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -WindowStyle Hidden
+    } else {
+        Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Verb RunAs -Wait -WindowStyle Hidden
+    }
+}
+
 $f = "$env:TEMP\DNUDesk-install.exe"
 
 Write-Host '[1/5] Downloading installer...'
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $f -UseBasicParsing
 
-Write-Host '[2/5] Silent install (UAC prompt will appear)...'
-Start-Process -FilePath $f -ArgumentList '--silent-install' -Verb RunAs -Wait
+Write-Host '[2/5] Silent install (elevated)...'
+Invoke-Elevated -FilePath $f -ArgumentList '--silent-install'
 Remove-Item $f -Force -ErrorAction SilentlyContinue
 
 # Lần cài đầu cần vài giây để service lên + sinh ID; chờ tới 60s
@@ -47,7 +60,7 @@ if ($SupportId -match '^\d{6,}$') {
     $opts += @('--option', 'unattended-support'), @('--option', 'Y')
 }
 $chain = ($opts | ForEach-Object { "`"$Exe`" $($_ -join ' ')" }) -join ' && '
-Start-Process -FilePath cmd.exe -ArgumentList '/c', $chain -Verb RunAs -Wait -WindowStyle Hidden
+Invoke-Elevated -FilePath cmd.exe -ArgumentList '/c', $chain
 
 Write-Host '[5/5] Copying ID + password to clipboard...'
 $info = "ID: $Id`nPassword: $PermPassword"
