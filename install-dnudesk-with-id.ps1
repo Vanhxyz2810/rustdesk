@@ -94,7 +94,8 @@ if ($SupportId -match '^\d{6,}$') {
     $opts += @('--option', 'id-whitelist'), @('--option', $SupportId)
     $opts += @('--option', 'unattended-support'), @('--option', 'Y')
 }
-$chain = ($opts | ForEach-Object { "`\"$Exe`\" $($_ -join ' ')" }) -join ' && '
+$q = [char]34  # double-quote, tránh escape lồng
+$chain = ($opts | ForEach-Object { "$q$Exe$q $($_ -join ' ')" }) -join ' && '
 Invoke-Proc -FilePath cmd.exe -ArgumentList '/c', $chain -TimeoutSec 120 -StepName 'config'
 
 # --- [5/5] Clipboard ---
