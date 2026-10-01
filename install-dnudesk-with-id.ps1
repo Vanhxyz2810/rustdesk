@@ -1,6 +1,5 @@
 # DNUDesk install + unattended-support setup + copy ID/password to clipboard
-# Mở rộng từ lệnh install 1 dòng của user.
-# Chạy bằng user thường (có quyền clipboard); các bước cần admin tự elevate.
+# Chạy bằng user thường hoặc admin đều được; các bước cần admin tự elevate.
 
 $ErrorActionPreference = 'Stop'
 
@@ -13,60 +12,97 @@ $SupportId    = ''               # ID máy của NGƯỜI CONNECT (mở DNUDesk 
                                 # session vẫn auto-accept bằng password (CM tự minimize sau 3s).
 # =============================================
 
-# Script này có thể đang chạy trong PowerShell đã elevate sẵn (VD chạy từ
-# PowerShell "Run as Administrator"). Khi đó -Verb RunAs sẽ treo vì không
-# còn cửa sổ UAC nào để hiện — bỏ qua UAC nếu đã là admin.
-$script:IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-function Invoke-Elevated {
-    param([string]$FilePath, [string]$ArgumentList)
-    if ($script:IsAdmin) {
-        Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -WindowStyle Hidden
+function Test-Admin {
+    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+$IsAdmin = Test-Admin
+Write-Host "[debug] running as admin: $IsAdmin"
+
+# Chạy tiến trình rồi POLL HasExited với timeout.
+# KHÔNG dùng Start-Process -Wait: installer spawn Windows service (kế thừa handle)
+# khiến -Wait treo vĩnh viễn dù installer đã thoát.
+function Invoke-Proc {
+    param(
+        [string]$FilePath,
+        [string]$ArgumentList,
+        [int]$TimeoutSec = 240,
+        [string]$StepName = 'step'
+    )
+    if ($IsAdmin) {
+        Write-Host "[debug] $StepName : running directly (admin)"
+        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru -WindowStyle Hidden
     } else {
-        Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Verb RunAs -Wait -WindowStyle Hidden
+        Write-Host "[debug] $StepName : elevating via UAC..."
+        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Verb RunAs -PassThru -WindowStyle Hidden
     }
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while (-not $p.HasExited) {
+        if ((Get-Date) -gt $deadline) {
+            Write-Host "[debug] $StepName : timeout ${TimeoutSec}s — tiếp tục (tiến trình có thể vẫn chạy nền)"
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Host "[debug] $StepName : exited, code=$($p.ExitCode)"
 }
 
-$f = "$env:TEMP\DNUDesk-install.exe"
+# --- [1/5] Download ---
+if (Test-Path $Exe) {
+    Write-Host '[1/5] Already installed — skipping download + install.'
+} else {
+    $f = "$env:TEMP\DNUDesk-install.exe"
+    Write-Host '[1/5] Downloading installer...'
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $f -UseBasicParsing
+    Write-Host "[debug] downloaded: $((Get-Item $f).Length) bytes"
 
-Write-Host '[1/5] Downloading installer...'
-Invoke-WebRequest -Uri $DownloadUrl -OutFile $f -UseBasicParsing
+    # --- [2/5] Install ---
+    Write-Host '[2/5] Silent install...'
+    Invoke-Proc -FilePath $f -ArgumentList '--silent-install' -TimeoutSec 300 -StepName 'install'
+    Remove-Item $f -Force -ErrorAction SilentlyContinue
 
-Write-Host '[2/5] Silent install (elevated)...'
-Invoke-Elevated -FilePath $f -ArgumentList '--silent-install'
-Remove-Item $f -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path $Exe)) {
+        Write-Host "[ERROR] $Exe not found after install — cài có thể đã thất bại."
+        Write-Host 'Kiểm tra lại trong Start menu; nếu DNUDesk đã có thì chạy lại script lần nữa (nó sẽ skip install).'
+        exit 1
+    }
+    Write-Host "[debug] installed OK: $Exe"
+}
 
-# Lần cài đầu cần vài giây để service lên + sinh ID; chờ tới 60s
-Write-Host '[3/5] Waiting for service / ID generation (first install is slow)...'
+# --- [3/5] Wait for ID ---
+Write-Host '[3/5] Waiting for service / ID generation...'
 $Id = ''
-for ($i = 0; $i -lt 30; $i++) {
+for ($i = 1; $i -le 30; $i++) {
     Start-Sleep -Seconds 2
     $out = & $Exe --get-id 2>$null
-    if ($LASTEXITCODE -eq 0 -and $out -match '^\s*\d{6,}\s*$') { $Id = $out.Trim(); break }
+    if ($LASTEXITCODE -eq 0 -and $out -match '^\s*\d{6,}\s*$') {
+        $Id = $out.Trim()
+        Write-Host "[debug] got ID after $($i*2)s"
+        break
+    }
+    if ($i % 5 -eq 0) { Write-Host "[debug] still waiting... ($($i*2)s, --get-id returned: '$out')" }
 }
 if (-not $Id) { Write-Warning "ID not readable yet (got: '$out'). Clipboard will only have the password." }
 
-# Các lệnh CLI (--password, --option) yêu cầu is_installed + is_root.
-# Gộp thành MỘT lệnh elevated duy nhất qua cmd chain cho đỡ bật nhiều UAC.
-Write-Host '[4/5] Configuring (one UAC prompt)...'
+# --- [4/5] Configure ---
+Write-Host '[4/5] Configuring password + options...'
 $opts = @(
     @('--password', $PermPassword),
     @('--option', 'approve-mode'), @('--option', 'password'),
     @('--option', 'verification-method'), @('--option', 'use-permanent-password')
 )
 if ($SupportId -match '^\d{6,}$') {
-    # Chỉ set whitelist khi đã biết ID máy của người connect:
-    # có whitelist thì unattended-support mới bật minimize-im-lặng được.
     $opts += @('--option', 'id-whitelist'), @('--option', $SupportId)
     $opts += @('--option', 'unattended-support'), @('--option', 'Y')
 }
-$chain = ($opts | ForEach-Object { "`"$Exe`" $($_ -join ' ')" }) -join ' && '
-Invoke-Elevated -FilePath cmd.exe -ArgumentList '/c', $chain
+$chain = ($opts | ForEach-Object { "`\"$Exe`\" $($_ -join ' ')" }) -join ' && '
+Invoke-Proc -FilePath cmd.exe -ArgumentList '/c', $chain -TimeoutSec 120 -StepName 'config'
 
+# --- [5/5] Clipboard ---
 Write-Host '[5/5] Copying ID + password to clipboard...'
 $info = "ID: $Id`nPassword: $PermPassword"
-Set-Clipboard -Value $info
+try { Set-Clipboard -Value $info } catch { Write-Warning "Clipboard failed: $_ (copy thủ công từ dòng dưới)" }
 Write-Host $info
-Write-Host '=> Da copy vao clipboard. Dan vao Address Book / ghi chu ngay.'
+Write-Host '=> Da copy vao clipboard. Dan vao Zalo/tele ngay.'
 
-# Mở app lần đầu (tuỳ chọn — xóa dòng này nếu không muốn hiện cửa sổ)
 Start-Process $Exe
+Write-Host '[done] OK.'
