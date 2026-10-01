@@ -60,12 +60,20 @@ if (Test-Path $Exe) {
     Invoke-Proc -FilePath $f -ArgumentList '--silent-install' -TimeoutSec 300 -StepName 'install'
     Remove-Item $f -Force -ErrorAction SilentlyContinue
 
-    if (-not (Test-Path $Exe)) {
-        Write-Host "[ERROR] $Exe not found after install — cài có thể đã thất bại."
-        Write-Host 'Kiểm tra lại trong Start menu; nếu DNUDesk đã có thì chạy lại script lần nữa (nó sẽ skip install).'
+    # Packer spawn tiến trình cài thật rồi exit ngay (code=0) — việc copy file
+    # vẫn đang chạy nền. Poll chờ exe xuất hiện thay vì check 1 lần.
+    Write-Host '[2/5] Waiting for install to finish (file copy runs in background)...'
+    $ok = $false
+    for ($i = 1; $i -le 60; $i++) {
+        if (Test-Path $Exe) { $ok = $true; Write-Host "[debug] $Exe appeared after $($i*2)s"; break }
+        Start-Sleep -Seconds 2
+        if ($i % 5 -eq 0) { Write-Host "[debug] still copying... ($($i*2)s)" }
+    }
+    if (-not $ok) {
+        Write-Host "[ERROR] $Exe still not found after 120s — install có thể đã thất bại."
+        Write-Host 'Nếu DNUDesk đã có trong Start menu, chạy lại script (nó sẽ skip install).'
         exit 1
     }
-    Write-Host "[debug] installed OK: $Exe"
 }
 
 # --- [3/5] Wait for ID ---
