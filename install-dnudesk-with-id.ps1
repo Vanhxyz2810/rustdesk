@@ -90,20 +90,35 @@ for ($i = 1; $i -le 30; $i++) {
     if ($i % 5 -eq 0) { Write-Host "[debug] service still: $($svc.Status) ($($i*2)s)" }
 }
 
+# ID chỉ được ghi vào user config sau khi GUI spawn tiến trình --server user-mode
+# (nó là bên đăng ký với hbbs). Mở app NGAY để không phải chờ người dùng mở tay.
+Write-Host '[3/5] Launching app to trigger ID registration...'
+Start-Process $Exe
+
+$cfg = "$env:APPDATA\DNUDesk\config\DNUDesk.toml"
 $Id = ''
 for ($i = 1; $i -le 90; $i++) {
     $out = & $Exe --get-id 2>$null
     if ($LASTEXITCODE -eq 0 -and $out -match '^\s*\d{6,}\s*$') {
         $Id = $out.Trim()
-        Write-Host "[debug] got ID after $($i*2)s"
+        Write-Host "[debug] got ID via --get-id after $($i*2)s"
         break
+    }
+    # fallback: đọc thẳng file config (GUI ghi ID vào đây)
+    if (Test-Path $cfg) {
+        $m = Select-String -Path $cfg -Pattern "^\s*id\s*=\s*['\"](\d{6,})['\"]" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($m) {
+            $Id = $m.Matches[0].Groups[1].Value
+            Write-Host "[debug] got ID from config file after $($i*2)s"
+            break
+        }
     }
     Start-Sleep -Seconds 2
     if ($i % 5 -eq 0) { Write-Host "[debug] waiting for ID... ($($i*2)s, got: '$out')" }
 }
 if (-not $Id) {
     Write-Warning "ID not readable after 180s (last: '$out'). Clipboard sẽ chỉ có password."
-    Write-Host 'Gợi ý: mở app DNUDesk thủ công, chờ nó hiện ID ở màn hình chính rồi copy tay.'
+    Write-Host "Gợi ý: ID hiển thị trên cửa sổ DNUDesk đang mở — copy tay từ đó."
 }
 
 # --- [4/5] Configure ---
