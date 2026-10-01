@@ -102,24 +102,64 @@ foreach ($p in Get-Process DNUDesk -ErrorAction SilentlyContinue) {
     }
 }
 
-$cfg = "$env:APPDATA\DNUDesk\config\DNUDesk.toml"
+# DNUDesk.exe là app GUI (WIN32 subsystem): `$x = & $Exe --get-id` không đảm bảo
+# PowerShell 5.1 cấp pipe stdout cho nó -> println! của Rust rơi vào handle rỗng,
+# $x luôn trống. Tự tạo Process với RedirectStandardOutput để chắc chắn có pipe.
+# (Không đọc được ID từ DNUDesk.toml: file chỉ chứa enc_id đã mã hoá theo máy.)
+function Get-DNUDeskId {
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $Exe
+        $psi.Arguments = '--get-id'
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        # Đọc async: tránh treo nếu tiến trình con nào đó giữ pipe.
+        $outTask = $p.StandardOutput.ReadToEndAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit(15000)) {
+            try { $p.Kill() } catch { }
+            return @{ Id = ''; Raw = '(timeout 15s)' }
+        }
+        $null = $outTask.Wait(3000)
+        $null = $errTask.Wait(1000)
+        $raw = ''
+        if ($outTask.IsCompleted) { $raw = $outTask.Result }
+        $id = ''
+        foreach ($line in ($raw -split "`r?`n")) {
+            if ($line -match '^\s*(\d{6,})\s*$') { $id = $Matches[1] }
+        }
+        $errText = ''
+        if ($errTask.IsCompleted) { $errText = $errTask.Result.Trim() }
+        return @{ Id = $id; Raw = "exit=$($p.ExitCode) out='$($raw.Trim())' err='$errText'" }
+    } catch {
+        return @{ Id = ''; Raw = "exception: $_" }
+    }
+}
+
 $Id = ''
+$out = ''
 for ($i = 1; $i -le 90; $i++) {
-    $out = & $Exe --get-id 2>$null
-    if ($LASTEXITCODE -eq 0 -and $out -match '^\s*\d{6,}\s*$') {
-        $Id = $out.Trim()
+    $r = Get-DNUDeskId
+    $out = $r.Raw
+    if ($r.Id) {
+        $Id = $r.Id
         Write-Host "[debug] got ID via --get-id after $($i*2)s"
         break
     }
-    # fallback: đọc thẳng file config (GUI ghi ID vào đây, toml dùng nháy đơn)
-    if (Test-Path $cfg) {
-        $m = Select-String -Path $cfg -Pattern "^\s*id\s*=\s*'(\d{6,})'" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($m) {
-            $Id = $m.Matches[0].Groups[1].Value
-            Write-Host "[debug] got ID from config file after $($i*2)s"
-            break
-        }
+    # Dự phòng: cách upstream RustDesk dùng — pipeline cũng buộc PS redirect stdout.
+    $alt = $null
+    try {
+        $alt = (& $Exe --get-id 2>$null | Write-Output) | Where-Object { $_ -match '^\s*\d{6,}\s*$' } | Select-Object -Last 1
+    } catch { }
+    if ($alt) {
+        $Id = "$alt".Trim()
+        Write-Host "[debug] got ID via --get-id pipeline after $($i*2)s"
+        break
     }
+    if ($i -eq 1) { Write-Host "[debug] first --get-id attempt: $out" }
     Start-Sleep -Seconds 2
     if ($i % 5 -eq 0) { Write-Host "[debug] waiting for ID... ($($i*2)s, got: '$out')" }
 }
