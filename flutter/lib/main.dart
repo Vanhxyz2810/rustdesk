@@ -293,8 +293,13 @@ void runConnectionManagerScreen() async {
   );
   final hide = await bind.cmGetConfig(name: "hide_cm") == 'true';
   gFFI.serverModel.hideCm = hide;
+  final minimize =
+      await bind.cmGetConfig(name: "unattended_support") == 'true';
+  gFFI.serverModel.minimizeCm = minimize;
   if (hide) {
     await hideCmWindow(isStartup: true);
+  } else if (minimize) {
+    await minimizeCmWindow(isStartup: true);
   } else {
     await showCmWindow(isStartup: true);
   }
@@ -329,6 +334,20 @@ showCmWindow({bool isStartup = false}) async {
           kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
       windowOnTop(null);
     }
+  }
+}
+
+// Unattended-support preset: start the CM minimized but visible (taskbar entry
+// stays, opacity 1) so the local user can bring it up and disconnect at any time.
+minimizeCmWindow({bool isStartup = false}) async {
+  if (isStartup) {
+    WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
+        size: kConnectionManagerWindowSizeClosedChat);
+    await windowManager.waitUntilReadyToShow(windowOptions, null);
+    bind.mainHideDock();
+    await windowManager.setOpacity(1);
+    await windowManager.minimize();
+    _isCmReadyToShow = true;
   }
 }
 

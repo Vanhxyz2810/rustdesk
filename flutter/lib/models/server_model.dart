@@ -32,6 +32,7 @@ class ServerModel with ChangeNotifier {
   bool _clipboardOk = false;
   bool _showElevation = false;
   bool hideCm = false;
+  bool minimizeCm = false;
   int _connectStatus = 0; // Rendezvous Server status
   String _verificationMethod = "";
   String _temporaryPasswordLength = "";
@@ -576,7 +577,7 @@ class ServerModel with ChangeNotifier {
         onTap: () {},
         page: desktop.buildConnectionCard(client)));
     Future.delayed(Duration.zero, () async {
-      if (!hideCm) windowOnTop(null);
+      if (!hideCm && !minimizeCm) windowOnTop(null);
     });
     // Only do the hidden task when on Desktop.
     if (client.authorized && isDesktop) {

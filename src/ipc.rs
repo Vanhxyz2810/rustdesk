@@ -820,6 +820,23 @@ impl Drop for CheckIfRestart {
     }
 }
 
+// Whether the CM window should start minimized (not hidden) for the unattended-support preset.
+// Gated so the CM is never minimized while a click-to-accept prompt could be pending: it requires
+// password approve-mode (auto-accept, no click) and a non-empty id-whitelist.
+pub fn unattended_support_minimize_cm() -> bool {
+    if Config::get_option(keys::OPTION_UNATTENDED_SUPPORT) != "Y" {
+        return false;
+    }
+    if hbb_common::password_security::approve_mode()
+        != hbb_common::password_security::ApproveMode::Password
+    {
+        return false;
+    }
+    Config::get_option(keys::OPTION_ID_WHITELIST)
+        .split(',')
+        .any(|x| !x.trim().is_empty())
+}
+
 async fn handle(data: Data, stream: &mut Connection) {
     match data {
         Data::SystemInfo(_) => {
@@ -971,6 +988,13 @@ async fn handle(data: Data, stream: &mut Connection) {
                     value = if crate::hbbs_http::sync::is_pro() || crate::common::is_custom_client()
                     {
                         Some(hbb_common::password_security::hide_cm().to_string())
+                    } else {
+                        None
+                    };
+                } else if name == "unattended_support" {
+                    value = if crate::hbbs_http::sync::is_pro() || crate::common::is_custom_client()
+                    {
+                        Some(unattended_support_minimize_cm().to_string())
                     } else {
                         None
                     };
@@ -2401,5 +2425,39 @@ mod test {
             Data::DrmFrame { cursor_pos, .. } => assert_eq!(cursor_pos, Some((3, 4))),
             other => panic!("expected DrmFrame, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_unattended_support_minimize_cm() {
+        let set = |unattended: &str, mode: &str, whitelist: &str| {
+            Config::set_option(
+                keys::OPTION_UNATTENDED_SUPPORT.to_owned(),
+                unattended.to_owned(),
+            );
+            Config::set_option("approve-mode".to_owned(), mode.to_owned());
+            Config::set_option(keys::OPTION_ID_WHITELIST.to_owned(), whitelist.to_owned());
+        };
+
+        // off -> false
+        set("N", "password", "123456789");
+        assert!(!unattended_support_minimize_cm());
+
+        // on + click mode -> false
+        set("Y", "click", "123456789");
+        assert!(!unattended_support_minimize_cm());
+
+        // on + both mode -> false
+        set("Y", "both", "123456789");
+        assert!(!unattended_support_minimize_cm());
+
+        // on + password + empty whitelist -> false
+        set("Y", "password", "");
+        assert!(!unattended_support_minimize_cm());
+
+        // on + password + non-empty whitelist -> true
+        set("Y", "password", "123456789");
+        assert!(unattended_support_minimize_cm());
+
+        set("", "", "");
     }
 }
