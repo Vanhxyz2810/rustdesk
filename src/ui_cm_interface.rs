@@ -198,6 +198,8 @@ pub trait InvokeUiCM: Send + Clone + 'static + Sized {
     fn update_voice_call_state(&self, client: &Client);
 
     fn file_transfer_log(&self, action: &str, log: &str);
+
+    fn hide_window(&self);
 }
 
 impl<T: InvokeUiCM> Deref for ConnectionManager<T> {
@@ -653,6 +655,9 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
                                     {
                                         self.file_transfer_enabled_peer = _enabled;
                                     }
+                                }
+                                Data::HideCmWindow => {
+                                    self.cm.hide_window();
                                 }
                                 Data::Theme(dark) => {
                                     self.cm.change_theme(dark);

@@ -291,6 +291,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   buildPasswordBoard2(BuildContext context, ServerModel model) {
     RxBool refreshHover = false.obs;
     RxBool editHover = false.obs;
+    RxBool copyHover = false.obs;
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
@@ -339,6 +340,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                             style: TextStyle(fontSize: 15),
                           ).workaroundFreezeLinuxMint(),
                         ),
+                      ),
+                      InkWell(
+                        child: Tooltip(
+                          message: translate('Copy to clipboard'),
+                          child: Obx(
+                            () => Icon(
+                              Icons.copy_rounded,
+                              color: copyHover.value
+                                  ? textColor
+                                  : Color(0xFFDDDDDD),
+                              size: 20,
+                            ).marginOnly(right: 8, top: 4),
+                          ),
+                        ),
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(
+                              text: "ID: ${model.serverId.text}\n"
+                                  "Password: ${model.serverPasswd.text}"));
+                          showToast(translate("Copied"));
+                        },
+                        onHover: (value) => copyHover.value = value,
                       ),
                       if (showOneTime)
                         AnimatedRotationWidget(

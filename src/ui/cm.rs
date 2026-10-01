@@ -73,6 +73,8 @@ impl InvokeUiCM for SciterHandler {
     }
 
     fn file_transfer_log(&self, _action: &str, _log: &str) {}
+
+    fn hide_window(&self) {}
 }
 
 impl SciterHandler {

@@ -1174,6 +1174,11 @@ pub fn main_check_connect_status() {
     start_option_status_sync(); // avoid multi calls
 }
 
+pub fn main_hide_cm_window() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    ui_interface::send_to_cm(&crate::ipc::Data::HideCmWindow);
+}
+
 pub fn main_is_using_public_server() -> bool {
     crate::using_public_server()
 }

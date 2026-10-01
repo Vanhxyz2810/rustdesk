@@ -1555,6 +1555,10 @@ pub mod connection_manager {
         fn file_transfer_log(&self, action: &str, log: &str) {
             self.push_event("cm_file_transfer_log", &[(action, log)]);
         }
+
+        fn hide_window(&self) {
+            self.push_event::<&str>("hide_cm_window", &[]);
+        }
     }
 
     impl FlutterHandler {

@@ -438,6 +438,8 @@ class FfiModel with ChangeNotifier {
                 .changePersonalHashPassword(id.toString(), hash.toString());
           }
         }
+      } else if (name == 'hide_cm_window') {
+        if (desktopType == DesktopType.cm) windowManager.hide();
       } else if (name == "cm_file_transfer_log") {
         if (isDesktop) {
           gFFI.cmFileModel.onFileTransferLog(evt);
