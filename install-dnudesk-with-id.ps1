@@ -76,20 +76,35 @@ if (Test-Path $Exe) {
     }
 }
 
-# --- [3/5] Wait for ID ---
-Write-Host '[3/5] Waiting for service / ID generation...'
-$Id = ''
+# --- [3/5] Wait for service + ID ---
+Write-Host '[3/5] Waiting for DNUDesk service + ID generation...'
+$svc = Get-Service -Name 'DNUDesk' -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -ne 'Running') {
+    Write-Host "[debug] service status: $($svc.Status) — starting..."
+    try { Start-Service -Name 'DNUDesk' -ErrorAction Stop } catch { Write-Host "[debug] start-service: $_" }
+}
 for ($i = 1; $i -le 30; $i++) {
+    $svc = Get-Service -Name 'DNUDesk' -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq 'Running') { Write-Host '[debug] service Running'; break }
     Start-Sleep -Seconds 2
+    if ($i % 5 -eq 0) { Write-Host "[debug] service still: $($svc.Status) ($($i*2)s)" }
+}
+
+$Id = ''
+for ($i = 1; $i -le 90; $i++) {
     $out = & $Exe --get-id 2>$null
     if ($LASTEXITCODE -eq 0 -and $out -match '^\s*\d{6,}\s*$') {
         $Id = $out.Trim()
         Write-Host "[debug] got ID after $($i*2)s"
         break
     }
-    if ($i % 5 -eq 0) { Write-Host "[debug] still waiting... ($($i*2)s, --get-id returned: '$out')" }
+    Start-Sleep -Seconds 2
+    if ($i % 5 -eq 0) { Write-Host "[debug] waiting for ID... ($($i*2)s, got: '$out')" }
 }
-if (-not $Id) { Write-Warning "ID not readable yet (got: '$out'). Clipboard will only have the password." }
+if (-not $Id) {
+    Write-Warning "ID not readable after 180s (last: '$out'). Clipboard sẽ chỉ có password."
+    Write-Host 'Gợi ý: mở app DNUDesk thủ công, chờ nó hiện ID ở màn hình chính rồi copy tay.'
+}
 
 # --- [4/5] Configure ---
 Write-Host '[4/5] Configuring password + options...'
