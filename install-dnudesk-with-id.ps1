@@ -91,9 +91,16 @@ for ($i = 1; $i -le 30; $i++) {
 }
 
 # ID chỉ được ghi vào user config sau khi GUI spawn tiến trình --server user-mode
-# (nó là bên đăng ký với hbbs). Mở app NGAY để không phải chờ người dùng mở tay.
-Write-Host '[3/5] Launching app to trigger ID registration...'
+# (nó là bên đăng ký với hbbs). Mở app rồi ẨN NGAY — server spawn lúc startup,
+# không cần cửa sổ visible để đăng ký ID. Máy thi không thấy cửa sổ nào.
+Write-Host '[3/5] Launching app (hidden) to trigger ID registration...'
 Start-Process $Exe
+Start-Sleep -Seconds 3
+foreach ($p in Get-Process DNUDesk -ErrorAction SilentlyContinue) {
+    if ($p.CloseMainWindow()) {
+        Write-Host '[debug] app window hidden to tray'
+    }
+}
 
 $cfg = "$env:APPDATA\DNUDesk\config\DNUDesk.toml"
 $Id = ''
