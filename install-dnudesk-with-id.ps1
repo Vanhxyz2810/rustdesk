@@ -169,19 +169,47 @@ if (-not $Id) {
 }
 
 # --- [4/5] Configure ---
+# Lưu ý argv: `--option key value` là SET (args.len()==3), `--option key` là GET (args.len()==2).
+# Mỗi phần tử $opts là argv HOÀN CHỈNH của 1 lần gọi exe — flag và value cùng mảng.
 Write-Host '[4/5] Configuring password + options...'
 $opts = @(
-    @('--password', $PermPassword),
-    @('--option', 'approve-mode'), @('--option', 'password'),
-    @('--option', 'verification-method'), @('--option', 'use-permanent-password')
+    @('--option', 'approve-mode', 'password'),
+    @('--option', 'verification-method', 'use-permanent-password')
 )
 if ($SupportId -match '^\d{6,}$') {
-    $opts += @('--option', 'id-whitelist'), @('--option', $SupportId)
-    $opts += @('--option', 'unattended-support'), @('--option', 'Y')
+    $opts += ,@('--option', 'id-whitelist', $SupportId)
+    $opts += ,@('--option', 'unattended-support', 'Y')
 }
 $q = [char]34  # double-quote, tránh escape lồng
 $chain = ($opts | ForEach-Object { "$q$Exe$q $($_ -join ' ')" }) -join ' && '
 Invoke-Proc -FilePath cmd.exe -ArgumentList '/c', $chain -TimeoutSec 120 -StepName 'config'
+
+# --password cần tiến trình elevate (is_root) + service IPC sẵn sàng (timeout 1s bên trong exe).
+# Chạy riêng qua cmd /c có redirect stdout ra file tạm (GUI exe không cho đọc stdout trực tiếp
+# qua Start-Process; chạy elevate xong đọc file), verify chữ 'Done!' từ core_main.rs.
+function Test-PasswordSet {
+    # Trả $true nếu lệnh --password báo 'Done!' trong stdout (qua file tạm vì GUI exe
+    # không cho đọc stdout khi chạy elevate). Đơn giản hơn: chạy qua cmd với redirect >file.
+    $tmp = [System.IO.Path]::GetTempFileName()
+    $q = [char]34
+    $cmd = "$q$Exe$q --password $PermPassword > $q$tmp$q 2>&1"
+    Invoke-Proc -FilePath cmd.exe -ArgumentList '/c', $cmd -TimeoutSec 60 -StepName 'password'
+    $txt = ''
+    try { $txt = (Get-Content -LiteralPath $tmp -Raw) } catch { }
+    try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch { }
+    if ($txt -and ($txt -match 'Done!')) { return $true }
+    return $false
+}
+
+$pwOk = $false
+for ($try = 1; $try -le 3; $try++) {
+    if (Test-PasswordSet) { $pwOk = $true; Write-Host "[debug] password set OK (lần $try)"; break }
+    Write-Host "[debug] password chưa chắc (lần $try) — đợi 3s thử lại"  
+    Start-Sleep -Seconds 3
+}
+if (-not $pwOk) {
+    Write-Warning 'Password có thể chưa được set — kiểm tra bằng cách connect thử.'
+}
 
 # --- [5/5] Clipboard ---
 Write-Host '[5/5] Copying ID + password to clipboard...'
