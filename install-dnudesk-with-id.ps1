@@ -94,17 +94,12 @@ for ($i = 1; $i -le 30; $i++) {
     if ($i % 5 -eq 0) { Write-Host "[debug] service still: $($svc.Status) ($($i*2)s)" }
 }
 
-# ID chỉ được ghi vào user config sau khi GUI spawn tiến trình --server user-mode
-# (nó là bên đăng ký với hbbs). Mở app rồi ẨN NGAY — server spawn lúc startup,
-# không cần cửa sổ visible để đăng ký ID. Máy thi không thấy cửa sổ nào.
-Write-Host '[3/5] Launching app (hidden) to trigger ID registration...'
-Start-Process $Exe
-Start-Sleep -Seconds 3
-foreach ($p in Get-Process DNUDesk -ErrorAction SilentlyContinue) {
-    if ($p.CloseMainWindow()) {
-        Write-Host '[debug] app window hidden to tray'
-    }
-}
+# ID chỉ được ghi vào user config sau khi tiến trình --server user-mode chạy
+# (nó là bên đăng ký với hbbs). Chạy trực tiếp --server + --tray: không có
+# cửa sổ nào hiện ra, đăng ký ID giống hệt khi mở GUI.
+Write-Host '[3/5] Starting DNUDesk --server + --tray (no window)...'
+Start-Process $Exe -ArgumentList '--tray'
+Start-Process $Exe -ArgumentList '--server'
 
 # DNUDesk.exe là app GUI (WIN32 subsystem): `$x = & $Exe --get-id` không đảm bảo
 # PowerShell 5.1 cấp pipe stdout cho nó -> println! của Rust rơi vào handle rỗng,
