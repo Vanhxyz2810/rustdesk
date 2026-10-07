@@ -28,12 +28,16 @@ function Invoke-Proc {
         [int]$TimeoutSec = 240,
         [string]$StepName = 'step'
     )
+    # Start-Process từ chối -ArgumentList null/rỗng; file .cmd chạy không cần tham số
+    # nên chỉ đưa vào splat khi có giá trị.
+    $splat = @{ FilePath = $FilePath; PassThru = $true; WindowStyle = 'Hidden' }
+    if ($ArgumentList) { $splat.ArgumentList = $ArgumentList }
     if ($IsAdmin) {
         Write-Host "[debug] $StepName : running directly (admin)"
-        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru -WindowStyle Hidden
+        $p = Start-Process @splat
     } else {
         Write-Host "[debug] $StepName : elevating via UAC..."
-        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Verb RunAs -PassThru -WindowStyle Hidden
+        $p = Start-Process @splat -Verb RunAs
     }
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while (-not $p.HasExited) {
