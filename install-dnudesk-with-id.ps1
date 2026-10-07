@@ -169,47 +169,62 @@ if (-not $Id) {
 }
 
 # --- [4/5] Configure ---
-# Lưu ý argv: `--option key value` là SET (args.len()==3), `--option key` là GET (args.len()==2).
-# Mỗi phần tử $opts là argv HOÀN CHỈNH của 1 lần gọi exe — flag và value cùng mảng.
+# PS 5.1 Start-Process + `cmd /c "<chain>"` mangles argv (quote-stripping rules),
+# nên exe nhận sai arg đầu -> flag không được nhận, exit 1. Thay bằng file .cmd tạm:
+# Start-Process trên file .cmd chạy qua cmd native, KHÔNG dính vấn đề quote.
+# Mỗi lệnh redirect ra 1 log file để đọc được output (Done! / lỗi) sau khi chạy.
 Write-Host '[4/5] Configuring password + options...'
-$opts = @(
-    @('--option', 'approve-mode', 'password'),
-    @('--option', 'verification-method', 'use-permanent-password')
-)
+
+$bat = Join-Path $env:TEMP 'dnudesk-config.cmd'
+$log = Join-Path $env:TEMP 'dnudesk-config.log'
+
+# Dựng từng DÒNG lệnh hoàn chỉnh: "<exe>" <args> >> "<log>" 2>&1
+$lines = @()
+$lines += "`"$Exe`" --option approve-mode password >> `"$log`" 2>&1"
+$lines += "echo === step 1 approve-mode done === >> `"$log`" 2>&1"
+$lines += "`"$Exe`" --option verification-method use-permanent-password >> `"$log`" 2>&1"
+$lines += "echo === step 2 verification-method done === >> `"$log`" 2>&1"
 if ($SupportId -match '^\d{6,}$') {
-    $opts += ,@('--option', 'id-whitelist', $SupportId)
-    $opts += ,@('--option', 'unattended-support', 'Y')
+    $lines += "`"$Exe`" --option id-whitelist $SupportId >> `"$log`" 2>&1"
+    $lines += "echo === step 3 id-whitelist done === >> `"$log`" 2>&1"
+    $lines += "`"$Exe`" --option unattended-support Y >> `"$log`" 2>&1"
+    $lines += "echo === step 4 unattended-support done === >> `"$log`" 2>&1"
 }
-$q = [char]34  # double-quote, tránh escape lồng
-$chain = ($opts | ForEach-Object { "$q$Exe$q $($_ -join ' ')" }) -join ' && '
-Invoke-Proc -FilePath cmd.exe -ArgumentList '/c', $chain -TimeoutSec 120 -StepName 'config'
+$lines += "echo === password section === >> `"$log`" 2>&1"
+$lines += "`"$Exe`" --password $PermPassword >> `"$log`" 2>&1"
+$lines += "echo === step 5 password done === >> `"$log`" 2>&1"
 
-# --password cần tiến trình elevate (is_root) + service IPC sẵn sàng (timeout 1s bên trong exe).
-# Chạy riêng qua cmd /c có redirect stdout ra file tạm (GUI exe không cho đọc stdout trực tiếp
-# qua Start-Process; chạy elevate xong đọc file), verify chữ 'Done!' từ core_main.rs.
-function Test-PasswordSet {
-    # Trả $true nếu lệnh --password báo 'Done!' trong stdout (qua file tạm vì GUI exe
-    # không cho đọc stdout khi chạy elevate). Đơn giản hơn: chạy qua cmd với redirect >file.
-    $tmp = [System.IO.Path]::GetTempFileName()
-    $q = [char]34
-    $cmd = "$q$Exe$q --password $PermPassword > $q$tmp$q 2>&1"
-    Invoke-Proc -FilePath cmd.exe -ArgumentList '/c', $cmd -TimeoutSec 60 -StepName 'password'
-    $txt = ''
-    try { $txt = (Get-Content -LiteralPath $tmp -Raw) } catch { }
-    try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch { }
-    if ($txt -and ($txt -match 'Done!')) { return $true }
-    return $false
-}
+Set-Content -LiteralPath $bat -Value $lines -Encoding ASCII
 
+# Chạy tối đa 3 lần: mỗi lần chạy lại toàn bộ lệnh, chờ 'Done!' xuất hiện SAU
+# marker password section (service IPC có thể cần thêm giây sau khi mới start).
 $pwOk = $false
-for ($try = 1; $try -le 3; $try++) {
-    if (Test-PasswordSet) { $pwOk = $true; Write-Host "[debug] password set OK (lần $try)"; break }
-    Write-Host "[debug] password chưa chắc (lần $try) — đợi 3s thử lại"  
-    Start-Sleep -Seconds 3
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+    Write-Host "[debug] config attempt $attempt/3 ..."
+    Invoke-Proc -FilePath $bat -TimeoutSec 120 -StepName 'config'
+    $logText = ''
+    if (Test-Path $log) { $logText = Get-Content -LiteralPath $log -Raw }
+    Write-Host '[debug] ----- config log -----'
+    Write-Host $logText
+    Write-Host '[debug] -----------------------'
+    # password thành công = có 'Done!' sau marker 'password section'
+    $pwSection = $logText -split '=== password section ==='
+    if ($pwSection.Count -ge 2 -and ($pwSection[-1] -match 'Done!')) {
+        $pwOk = $true
+        Write-Host '[debug] password set OK (Done! after password section)'
+        break
+    }
+    if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
 }
 if (-not $pwOk) {
-    Write-Warning 'Password có thể chưa được set — kiểm tra bằng cách connect thử.'
+    Write-Warning "Chưa thấy 'Done!' sau khi set password (xem config log ở trên). Session vẫn có thể dùng password nếu set thành công thủ công."
 }
+
+# Cleanup file tạm
+Remove-Item -LiteralPath $bat -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+
 
 # --- [5/5] Clipboard ---
 Write-Host '[5/5] Copying ID + password to clipboard...'
