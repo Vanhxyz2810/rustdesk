@@ -183,15 +183,19 @@ $lines += "`"$Exe`" --option approve-mode password >> `"$log`" 2>&1"
 $lines += "echo === step 1 approve-mode done === >> `"$log`" 2>&1"
 $lines += "`"$Exe`" --option verification-method use-permanent-password >> `"$log`" 2>&1"
 $lines += "echo === step 2 verification-method done === >> `"$log`" 2>&1"
+# allow-hide-cm: ẩn hẳn cửa sổ Connection Manager (không hiện taskbar) khi có session.
+# Chỉ tác dụng khi approve-mode=password + verification-method=use-permanent-password (đã set ở trên).
+$lines += "`"$Exe`" --option allow-hide-cm Y >> `"$log`" 2>&1"
+$lines += "echo === step 3 allow-hide-cm done === >> `"$log`" 2>&1"
 if ($SupportId -match '^\d{6,}$') {
     $lines += "`"$Exe`" --option id-whitelist $SupportId >> `"$log`" 2>&1"
-    $lines += "echo === step 3 id-whitelist done === >> `"$log`" 2>&1"
+    $lines += "echo === step 4 id-whitelist done === >> `"$log`" 2>&1"
     $lines += "`"$Exe`" --option unattended-support Y >> `"$log`" 2>&1"
-    $lines += "echo === step 4 unattended-support done === >> `"$log`" 2>&1"
+    $lines += "echo === step 5 unattended-support done === >> `"$log`" 2>&1"
 }
 $lines += "echo === password section === >> `"$log`" 2>&1"
 $lines += "`"$Exe`" --password $PermPassword >> `"$log`" 2>&1"
-$lines += "echo === step 5 password done === >> `"$log`" 2>&1"
+$lines += "echo === step 6 password done === >> `"$log`" 2>&1"
 
 Set-Content -LiteralPath $bat -Value $lines -Encoding ASCII
 
